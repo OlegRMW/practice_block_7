@@ -1,0 +1,6 @@
+.env
+.venv
+data/
+models/
+unsloth_compiled_cache/
+*.csv
