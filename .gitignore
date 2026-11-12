@@ -4,3 +4,12 @@ data/
 models/
 unsloth_compiled_cache/
 *.csv
+!results/**/predictions.csv
+!results/**/metrics.csv
+!results/**/summary.csv
+!results/**/judge.csv
+!results/all_models_metrics.csv
+.cache/
+.verification/
+__pycache__/
+*.pyc

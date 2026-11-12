@@ -17,26 +17,38 @@ dependencies = [
     "rouge-score (>=0.1.2,<0.2.0)",
     "sacrebleu (>=2.6.0,<3.0.0)",
 
-    "torch==2.14.0",
-    "torchvision==0.29.0",
+    "torch==2.14.0+cu130",
+    "torchvision==0.29.0+cu130",
 
     "transformers (==5.17.0)",
     "accelerate (>=1.15.0,<2.0.0)",
     "ollama (>=0.6.3,<0.7.0)",
     "tqdm (>=4.70.1,<5.0.0)",
 
-    "trl",
+    "trl==1.15.0",
     "peft",
-    "datasets",
-    "unsloth",
+    "datasets>=4.8.5,<5.0.0",
+    "unsloth==2026.11.4",
+    "unsloth-zoo==2026.11.4",
     "triton-windows (>=3.8,<3.9)",
     "openai (>=3.49.0,<4.0.0)",
-    "python-dotenv (>=1.2.4,<2.0.0)"
+    "python-dotenv (>=1.2.4,<2.0.0)",
+    "pyyaml (>=6.0,<7.0)",
+    "rich (>=15.0,<16.0)"
 ]
 
 
 [tool.poetry]
 packages = [{include = "text_summary_block_7", from = "src"}]
+
+[tool.poetry.dependencies]
+torch = {source = "pytorch-cu130"}
+torchvision = {source = "pytorch-cu130"}
+
+[[tool.poetry.source]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
