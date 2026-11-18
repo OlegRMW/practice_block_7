@@ -3,6 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import argparse
 import math
+import re
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +20,16 @@ def load_config(path, overrides=(), named=None):
     if not isinstance(config, dict):
         raise ValueError("Configuration must be a YAML mapping")
     config = deepcopy(config)
+    if isinstance(config.get("judge"), dict):
+        judge = config["judge"]
+        if "model" in judge:
+            raise ValueError("Replace judge.model with judge.models: gpt_oss: {model: openai/gpt-oss-120b}, glm_flash: {model: z-ai/glm-5.3-flash}")
+        if not isinstance(judge.get("models"), dict):
+            raise ValueError("judge.models must be a mapping")
+        for params in judge["models"].values():
+            if isinstance(params, dict):
+                for key in ("timeout", "max_retries", "temperature", "max_tokens"):
+                    params.setdefault(key, None)
     cli_paths = set()
     for item in overrides:
         key, sep, value = item.partition("=")
@@ -67,9 +78,10 @@ def _validate(c):
         "model": {"kind", "name", "host", "adapter_path", "max_seq_length", "load_in_4bit"},
         "generation": {"system_prompt", "max_new_tokens", "temperature", "num_ctx", "keep_alive", "do_sample", "think"},
         "metrics": {"use_stemmer", "tokenize", "smooth_method"},
-        "judge": {"base_url", "model", "api_key_env", "prompt", "timeout", "max_retries", "temperature", "max_tokens", "sample_size", "seed"},
+        "judge": {"base_url", "models", "api_key_env", "prompt", "timeout", "max_retries", "temperature", "max_tokens", "sample_size", "seed"},
+        "resources": {"sample_interval_seconds"},
         "lora": {"r", "lora_alpha", "lora_dropout", "target_modules", "bias", "use_gradient_checkpointing"},
-        "training": {"train_size", "num_train_epochs", "per_device_train_batch_size", "per_device_eval_batch_size", "gradient_accumulation_steps", "learning_rate", "lr_scheduler_type", "warmup_ratio", "completion_only_loss", "optim", "weight_decay", "logging_steps", "eval_strategy", "save_strategy", "save_total_limit", "max_steps", "validation_size"},
+        "training": {"train_size", "num_train_epochs", "per_device_train_batch_size", "per_device_eval_batch_size", "gradient_accumulation_steps", "learning_rate", "lr_scheduler_type", "warmup_ratio", "completion_only_loss", "optim", "weight_decay", "logging_steps", "eval_strategy", "save_strategy", "save_total_limit", "max_steps", "validation_size", "run_kind"},
     }
     if c.keys() != allowed.keys():
         raise ValueError(f"Invalid top-level keys; expected {', '.join(allowed)}")
@@ -84,7 +96,7 @@ def _validate(c):
                 raise ValueError(f"{section}.{key} must be a nonempty path")
     for section, keys in {
         "model": ("name", "host"), "generation": ("system_prompt", "keep_alive"),
-        "judge": ("base_url", "model", "api_key_env", "prompt"),
+        "judge": ("base_url", "api_key_env", "prompt"),
     }.items():
         for key in keys:
             if not isinstance(c[section][key], str) or not c[section][key].strip():
@@ -130,6 +142,7 @@ def _validate(c):
     enums = [("metrics", "tokenize", {"13a", "intl", "none"}), ("metrics", "smooth_method", {"exp", "floor", "add-k", "none"}),
              ("training", "eval_strategy", {"no", "epoch"}), ("training", "save_strategy", {"no", "epoch"}),
              ("training", "lr_scheduler_type", {"cosine", "linear", "constant"}), ("training", "optim", {"adamw_torch", "adamw_torch_fused"}), ("lora", "bias", {"none"})]
+    enums.append(("training", "run_kind", {"full", "smoke", "limited"}))
     for section, key, values in enums:
         if not isinstance(c[section][key], str) or c[section][key] not in values:
             raise ValueError(f"{section}.{key} must be one of {values}")
@@ -137,6 +150,37 @@ def _validate(c):
         raise ValueError("This project trains on completion tokens only")
     if c["lora"]["use_gradient_checkpointing"] not in (True, False, "unsloth"):
         raise ValueError("lora.use_gradient_checkpointing must be boolean or 'unsloth'")
+    interval = c["resources"]["sample_interval_seconds"]
+    if type(interval) not in (int, float) or not math.isfinite(interval) or interval <= 0:
+        raise ValueError("resources.sample_interval_seconds must be positive")
+    models = c["judge"]["models"]
+    if not isinstance(models, dict) or not models:
+        raise ValueError("judge.models must be a nonempty mapping")
+    for name, params in models.items():
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+            raise ValueError("Judge aliases must contain lowercase letters, digits and underscores")
+        if not isinstance(params, dict) or params.keys() != {"model", "timeout", "max_retries", "temperature", "max_tokens"}:
+            raise ValueError(f"Invalid judge settings: {name}")
+        if not isinstance(params["model"], str) or not params["model"].strip():
+            raise ValueError(f"judge.models.{name}.model must be nonempty")
+        for key in ("timeout", "max_retries", "temperature", "max_tokens"):
+            value = params[key]
+            if value is None:
+                continue
+            integer = key in {"max_retries", "max_tokens"}
+            if type(value) not in ((int,) if integer else (int, float)) or not math.isfinite(value) or value < 0 or (key in {"timeout", "max_tokens"} and value == 0):
+                raise ValueError(f"Invalid judge.models.{name}.{key}")
+    if len({params["model"] for params in models.values()}) != len(models):
+        raise ValueError("Judge model IDs must be distinct")
+
+
+def select_judges(config, names=None):
+    available = config["judge"]["models"]
+    names = list(available) if names is None else list(dict.fromkeys(names))
+    if not names or any(n not in available for n in names):
+        raise ValueError(f"Select judges from: {', '.join(available)}")
+    shared = {k: v for k, v in config["judge"].items() if k != "models"}
+    return {name: {**shared, **{k: v for k, v in available[name].items() if v is not None}} for name in names}
 
 
 def parser(description):

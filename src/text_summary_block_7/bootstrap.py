@@ -22,6 +22,8 @@ def bootstrap(results_dir=None):
     columns = {"baseline": "baseline_summary", "qwen": "qwen_summary", "qwen_lora": "qwen_lora_summary"}
     for kind, name in configs.items():
         c = load_config(ROOT / f"configs/{name}.yaml", named={"paths.results_dir": str(Path(results_dir).resolve())} if results_dir else None)
+        # These are original notebook predictions, not a new 64-token inference.
+        c["generation"]["max_new_tokens"] = 128 if kind == "qwen_lora" else 64
         pred = predictions(test, old[columns[kind]].tolist(), kind)
         metrics, summary = compute_metrics(pred, c["metrics"])
         directory = save_run(pred, metrics, summary, c, provenance={"predictions": str(source.relative_to(ROOT)), "sha256": file_hash(source)})
@@ -36,7 +38,7 @@ def bootstrap(results_dir=None):
             # Index matches the test, but source CSV does not record evaluated text.
             # Preserve as historical/unverified rather than manufacture a response hash.
             imported.append({"id": test.id.iloc[idx], "model": kind, "response_hash": "", **scores,
-                             "judge_model": c["judge"]["model"], "judge_hash": fingerprint("legacy", str(judge_path)),
+                             "judge_model": c["judge"]["models"]["gpt_oss"]["model"], "judge_hash": fingerprint("legacy", str(judge_path)),
                              "recorded_at": "", "status": "legacy_unverified", "error": "", "source": "notebooks/routerai_judge_results.csv (index only)", "run_id": "legacy"})
         write_csv(pd.DataFrame(imported, columns=JUDGE_COLUMNS), directory / "judge.csv")
         print(f"Prepared {kind}: {len(pred)} answers; {len(imported)} historical judge scores")

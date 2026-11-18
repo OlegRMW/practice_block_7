@@ -1,6 +1,6 @@
-run_id: 463c86b8e40b41fa858da3553b4a9b38
+run_id: 20261118T173546396859Z_50909a1a
 rows: 1500
-recorded_at: '2026-11-12T15:21:36.205235+00:00'
+recorded_at: '2026-11-18T17:35:48.045964+00:00'
 config:
   seed: 42
   data:
@@ -14,7 +14,7 @@ config:
     kind: qwen_lora
     name: Qwen/Qwen3-0.6B
     host: http://localhost:11434
-    adapter_path: C:\Users\Admin\Desktop\практика_ментор\text_summary_block_7\models\qwen3_summary_lora
+    adapter_path: C:\Users\Admin\Desktop\практика_ментор\text_summary_block_7\notebooks\models\qwen3_summary_lora
     max_seq_length: 2048
     load_in_4bit: false
   generation:
@@ -25,7 +25,7 @@ config:
       Do not invent information.
 
       Output only the summary.'
-    max_new_tokens: 128
+    max_new_tokens: 64
     temperature: 0
     num_ctx: 2048
     keep_alive: 30m
@@ -37,7 +37,6 @@ config:
     smooth_method: exp
   judge:
     base_url: https://routerai.ru/api/v1
-    model: openai/gpt-oss-120b
     api_key_env: ROUTERAI_API_KEY
     prompt: "\nYou are an expert evaluator of dialogue summaries.\n\nEvaluate the\
       \ generated summary based on the original dialogue\nand the reference summary.\n\
@@ -58,6 +57,19 @@ config:
     max_tokens: 1000
     sample_size: 100
     seed: 42
+    models:
+      gpt_oss:
+        model: openai/gpt-oss-120b
+        timeout: null
+        max_retries: null
+        temperature: null
+        max_tokens: null
+      glm_flash:
+        model: z-ai/glm-5.3-flash
+        timeout: null
+        max_retries: null
+        temperature: null
+        max_tokens: null
   lora:
     r: 16
     lora_alpha: 16
@@ -90,6 +102,9 @@ config:
     save_total_limit: 2
     max_steps: -1
     validation_size: -1
+    run_kind: full
+  resources:
+    sample_interval_seconds: 0.2
 test_sha256: e76d1299c28cb1b21def1c9b2b2caee9ee385609d06b9f1dd800634db39c45a4
 metric_versions:
   sacrebleu: 2.6.0
@@ -100,6 +115,121 @@ metric_details:
   corpus_effective_order: false
   rouge_aggregation: mean F1
   rougeLsum_sentences: nltk.sent_tokenize
-provenance:
-  predictions: notebooks\qwen_lora_test_predictions.csv
-  sha256: ea029045bad4b5047dbb4ba8505ba1e05b96fbc27b5681be6e3466f7e0ae2872
+provenance: model inference
+schema_version: 2
+evaluation:
+  sample_ids:
+  - test_372_1
+  - test_456_1
+  - test_140_3
+  - test_137_3
+  - test_150_2
+  - test_287_1
+  - test_354_2
+  - test_247_1
+  - test_424_1
+  - test_86_2
+  - test_296_1
+  - test_477_2
+  - test_237_2
+  - test_460_3
+  - test_23_2
+  - test_422_3
+  - test_497_1
+  - test_202_2
+  - test_144_2
+  - test_17_1
+  - test_399_3
+  - test_376_1
+  - test_396_3
+  - test_416_2
+  - test_473_1
+  - test_144_1
+  - test_484_1
+  - test_490_1
+  - test_411_2
+  - test_427_1
+  - test_361_3
+  - test_203_2
+  - test_428_1
+  - test_347_1
+  - test_73_2
+  - test_113_1
+  - test_141_1
+  - test_142_3
+  - test_368_2
+  - test_25_2
+  - test_463_3
+  - test_146_2
+  - test_445_2
+  - test_288_1
+  - test_360_1
+  - test_118_1
+  - test_121_3
+  - test_103_1
+  - test_245_2
+  - test_332_3
+  - test_207_1
+  - test_181_1
+  - test_380_1
+  - test_432_1
+  - test_184_3
+  - test_226_2
+  - test_16_2
+  - test_163_2
+  - test_105_2
+  - test_301_2
+  - test_212_1
+  - test_186_3
+  - test_162_1
+  - test_22_2
+  - test_270_2
+  - test_164_2
+  - test_103_2
+  - test_365_2
+  - test_415_3
+  - test_61_2
+  - test_102_1
+  - test_284_1
+  - test_264_1
+  - test_96_2
+  - test_235_2
+  - test_443_1
+  - test_218_1
+  - test_174_1
+  - test_153_3
+  - test_310_1
+  - test_344_3
+  - test_9_3
+  - test_80_1
+  - test_266_1
+  - test_272_2
+  - test_21_3
+  - test_200_2
+  - test_308_1
+  - test_251_2
+  - test_308_3
+  - test_367_1
+  - test_82_2
+  - test_92_2
+  - test_467_2
+  - test_355_2
+  - test_159_3
+  - test_142_1
+  - test_41_1
+  - test_389_3
+  - test_131_2
+  judges:
+    gpt_oss:
+      model: openai/gpt-oss-120b
+      hash: 5fe86b846aee5c80288d4bbe88260992699c244fd4eba874ec5c6632e80af6ec
+    glm_flash:
+      model: z-ai/glm-5.3-flash
+      hash: 1a4ab16a4a1c5ef8e713362c28cfc1ffeb641e1003ce7f64e0df51014a61a205
+adapter:
+  adapter_id: 270c1beed0dba2d89088ae51b67c1b1ef0ce1403a1f26a587ad3def884cbe540
+  tokenizer_id: 0eee291f70a6942155aee2b1092abf0cf8d8886ebd83ef8b7df02328f01659b7
+  adapter_mib: 38.55088233947754
+  precision: torch.bfloat16
+  base_model_revision: db4e90b8359f816f09bf5c944797ce116f26da3c
+conditions_id: 820a498cd88cc1ff62dfb5d248e1e7c1888cd4e1862438507ce246e57d7aa698

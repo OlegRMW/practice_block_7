@@ -5,6 +5,7 @@ import shutil
 from .config import ROOT
 from .artifacts import safe_path, fingerprint, file_hash, atomic_text
 from .preprocessing import messages
+from .generation import GenerationResult
 
 
 def ollama_generator(c):
@@ -19,7 +20,20 @@ def ollama_generator(c):
                 think=g["think"], options={"temperature": g["temperature"], "num_predict": g["max_new_tokens"], "num_ctx": g["num_ctx"]}, keep_alive=g["keep_alive"])
         except (ConnectionError, ResponseError) as error:
             raise RuntimeError(f"Ollama generation failed: {error}") from error
-        return response.message.content.strip()
+        stats = {name: getattr(response, name, None) for name in ("load_duration", "eval_duration", "prompt_eval_duration")}
+        return GenerationResult(response.message.content.strip(), response.eval_count, stats)
+    def info():
+        try:
+            running = client.ps().models
+            model = next((m for m in running if m.name == c["model"]["name"] or m.model == c["model"]["name"]), None)
+            if model:
+                details = model.details
+                return {"load_state": "warm", "server_loaded_models": len(running), "model_resident_vram_mib": model.size_vram / 2**20 if model.size_vram is not None else None,
+                        "model_digest": model.digest, "precision": details.quantization_level if details else "unknown"}
+            return {"load_state": "cold", "server_loaded_models": len(running)}
+        except Exception:
+            return {"load_state": "unknown", "notes": "Ollama model metadata unavailable"}
+    generate.info = info
     return generate
 
 
@@ -63,5 +77,7 @@ def lora_generator(c):
         with torch.inference_mode():
             outputs = model.generate(**inputs, max_new_tokens=g["max_new_tokens"], do_sample=g["do_sample"], use_cache=True,
                                      **({"temperature": g["temperature"]} if g["do_sample"] else {}))
-        return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
+        generated = outputs[0][inputs["input_ids"].shape[1]:]
+        return GenerationResult(tokenizer.decode(generated, skip_special_tokens=True).strip(), len(generated))
+    generate.info = lambda: {"precision": str(model.dtype), "device": str(model.device), "load_state": "loaded", "base_model_revision": getattr(model.config, "_commit_hash", None)}
     return generate

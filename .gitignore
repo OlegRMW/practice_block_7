@@ -8,6 +8,8 @@ unsloth_compiled_cache/
 !results/**/metrics.csv
 !results/**/summary.csv
 !results/**/judge.csv
+!results/**/scores_by_run.csv
+!results/**/resources.csv
 !results/all_models_metrics.csv
 .cache/
 .verification/

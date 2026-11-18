@@ -10,9 +10,11 @@ def main(argv=None):
     p.add_argument("--epochs", type=float)
     p.add_argument("--train-size", type=int)
     p.add_argument("--output-dir")
+    p.add_argument("--results-dir")
+    p.add_argument("--run-kind", choices=["full", "smoke", "limited"])
     a = p.parse_args(argv)
     try:
-        c = load_config(a.config, a.set, {"training.learning_rate": a.learning_rate, "training.num_train_epochs": a.epochs, "training.train_size": a.train_size, "paths.models_dir": a.output_dir})
+        c = load_config(a.config, a.set, {"training.learning_rate": a.learning_rate, "training.num_train_epochs": a.epochs, "training.train_size": a.train_size, "paths.models_dir": a.output_dir, "paths.results_dir": a.results_dir, "training.run_kind": a.run_kind})
         from text_summary_block_7.train import train
         print(f"Saved adapter: {train(c)}")
         return 0

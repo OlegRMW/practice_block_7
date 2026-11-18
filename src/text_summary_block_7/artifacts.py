@@ -13,7 +13,7 @@ from .config import ROOT, MODEL_NAMES
 
 METRICS = ["bleu", "rouge1", "rouge2", "rougeL", "rougeLsum"]
 CRITERIA = ["faithfulness", "coverage", "relevance", "coherence", "overall"]
-JUDGE_COLUMNS = ["id", "model", "response_hash", *CRITERIA, "judge_model", "judge_hash", "recorded_at", "status", "error", "source", "run_id"]
+JUDGE_COLUMNS = ["id", "model", "response_hash", *CRITERIA, "judge_model", "judge_hash", "recorded_at", "status", "error", "source", "run_id", "judge_alias", "attempts", "error_detail", "finish_reason", "completion_tokens"]
 
 
 def now():
@@ -21,7 +21,7 @@ def now():
 
 
 def fingerprint(*values):
-    return hashlib.sha256(json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def file_hash(path):
@@ -76,25 +76,49 @@ def predictions(df, values, model, run_id=None):
     frame = df[["id", "dialogue", "summary"]].rename(columns={"summary": "reference"}).copy()
     frame["prediction"] = values
     frame["model"] = model
-    frame["run_id"] = run_id or uuid.uuid4().hex
+    frame["run_id"] = run_id or (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "_" + uuid.uuid4().hex[:8])
     frame["response_hash"] = [fingerprint(model, r.dialogue, r.reference, r.prediction) for r in frame.itertuples()]
     return frame
 
 
-def save_run(pred, metrics, summary, config, provenance=None):
+def save_run(pred, metrics, summary, config, provenance=None, resources=None, evaluation=None, adapter=None):
     root = safe_path(config["paths"]["results_dir"], config["data"].values())
     directory = safe_path(root / config["model"]["kind"])
     directory.mkdir(parents=True, exist_ok=True)
-    # run.yaml is the commit marker: readers reject differing run IDs on interruption.
-    for name, frame in [("predictions", pred), ("metrics", metrics), ("summary", summary)]:
-        write_csv(frame, directory / f"{name}.csv")
+    if (directory / "run.yaml").exists():
+        previous = yaml.safe_load((directory / "run.yaml").read_text(encoding="utf-8"))
+        previous_id = str(previous["run_id"])
+        if not (directory / "runs" / previous_id / "run.yaml").exists():
+            legacy = safe_path(directory / "legacy" / previous_id)
+            if not (legacy / "run.yaml").exists():
+                load_run(directory)  # Do not archive an inconsistent source run.
+                for name in ("predictions.csv", "metrics.csv", "summary.csv", "resources.csv", "run.yaml"):
+                    source = directory / name
+                    if source.exists():
+                        atomic_text(legacy / name, source.read_text(encoding="utf-8"))
     metadata = {"run_id": str(pred.run_id.iloc[0]), "rows": len(pred), "recorded_at": now(), "config": config,
                 "test_sha256": file_hash(config["data"]["test"]),
                 "metric_versions": {x: importlib.metadata.version(x) for x in ("sacrebleu", "rouge-score", "nltk")},
                 "metric_details": {"sentence_effective_order": True, "corpus_effective_order": False, "rouge_aggregation": "mean F1", "rougeLsum_sentences": "nltk.sent_tokenize"},
                 "provenance": provenance or "model inference"}
-    atomic_text(directory / "run.yaml", yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False))
+    metadata.update(schema_version=2, evaluation=evaluation or {}, adapter=adapter or {})
+    metadata["conditions_id"] = fingerprint(metadata["test_sha256"], config["model"]["kind"], config["model"]["name"],
+        config["model"]["max_seq_length"], config["model"]["load_in_4bit"], config["generation"], config["metrics"], metadata["adapter"], config["judge"]["prompt"])
+    snapshot = safe_path(directory / "runs" / metadata["run_id"])
+    if snapshot.exists():
+        raise ValueError(f"Run already exists: {snapshot}")
+    for dest in (snapshot, directory):
+        for name, frame in [("predictions", pred), ("metrics", metrics), ("summary", summary)]:
+            write_csv(frame, dest / f"{name}.csv")
+        if resources is not None:
+            write_csv(pd.DataFrame(resources), dest / "resources.csv")
+        elif (dest / "resources.csv").exists():
+            # Do not associate a previous run's memory/timings with this one.
+            write_csv(pd.DataFrame(columns=["run_id", "operation", "phase"]), dest / "resources.csv")
+        atomic_text(dest / "run.yaml", yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False))
     rebuild_combined(root)
+    from .history import rebuild_wide
+    rebuild_wide(directory)
     return directory
 
 
@@ -114,7 +138,11 @@ def load_run(directory):
 
 def load_judges(directory):
     path = Path(directory) / "judge.csv"
-    return read_csv(path) if path.exists() else pd.DataFrame(columns=JUDGE_COLUMNS)
+    frame = read_csv(path) if path.exists() else pd.DataFrame(columns=JUDGE_COLUMNS)
+    for key in JUDGE_COLUMNS:
+        if key not in frame:
+            frame[key] = ""
+    return frame
 
 
 def classified_judges(pred, judges):
@@ -133,8 +161,9 @@ def rebuild_combined(root):
             continue
         pred, metrics, _ = load_run(directory)
         current, _ = classified_judges(pred, load_judges(directory))
-        valid = current[current.status.eq("ok")].drop_duplicates(["id", "response_hash"], keep="last")
-        frame = metrics.merge(valid[["id", "response_hash", *CRITERIA, "judge_model", "judge_hash", "source"]], on=["id", "response_hash"], how="left")
+        valid = current[current.status.eq("ok")].drop_duplicates(["id", "response_hash", "judge_model", "judge_hash"], keep="last")
+        payload = valid[["id", "response_hash", *CRITERIA, "judge_model", "judge_hash", "source", "run_id", "recorded_at"]].rename(columns={"run_id": "judge_run_id", "recorded_at": "judge_recorded_at"})
+        frame = metrics.merge(payload, on=["id", "response_hash"], how="left")
         frames.append(frame)
     if frames:
         write_csv(pd.concat(frames, ignore_index=True), Path(root) / "all_models_metrics.csv")

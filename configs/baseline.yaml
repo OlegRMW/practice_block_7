@@ -1,4 +1,4 @@
-# Paths are relative to this YAML. Judge calls require --llm-as-judge.
+# Paths are relative to this YAML. API calls require --llm-as-judge.
 seed: 42
 data:
   train: ../data/train.csv/train.csv
@@ -29,7 +29,6 @@ metrics:
   smooth_method: exp
 judge:
   base_url: https://routerai.ru/api/v1
-  model: openai/gpt-oss-120b
   api_key_env: ROUTERAI_API_KEY
   prompt: "\nYou are an expert evaluator of dialogue summaries.\n\nEvaluate the generated\
     \ summary based on the original dialogue\nand the reference summary.\n\nScore\
@@ -49,6 +48,11 @@ judge:
   max_tokens: 1000
   sample_size: 100
   seed: 42
+  models:
+    gpt_oss:
+      model: openai/gpt-oss-120b
+    glm_flash:
+      model: z-ai/glm-5.3-flash
 lora:
   r: 16
   lora_alpha: 16
@@ -81,3 +85,6 @@ training:
   save_total_limit: 2
   max_steps: -1
   validation_size: -1
+  run_kind: full
+resources:
+  sample_interval_seconds: 0.2

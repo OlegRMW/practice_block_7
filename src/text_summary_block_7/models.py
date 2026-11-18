@@ -13,6 +13,7 @@ def baseline_model(text):
 def generator(config):
     kind = config["model"]["kind"]
     if kind == "baseline":
-        return baseline_model
+        from .generation import GenerationResult
+        return lambda text: GenerationResult(baseline_model(text))
     from .neural import ollama_generator, lora_generator
     return ollama_generator(config) if kind == "qwen" else lora_generator(config)
