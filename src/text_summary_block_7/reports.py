@@ -145,6 +145,8 @@ def report(root, models=None, console=None):
     console.print("Faith=faithfulness; Cover=coverage; Relev=relevance; Coher=coherence; Avg=overall.")
     if judged:
         averages = pd.concat(judged, ignore_index=True)
+        for row in averages[averages.budget_overrides.gt(0)].itertuples():
+            console.print(f"Budget exception: {row.model} / {row.judge}: {row.budget_overrides} score(s) recovered with an explicitly extended max_tokens; actual settings hashes are preserved in judge.csv.")
         for (judge, judge_hash), group in averages.groupby(["judge", "judge_hash"]):
             display = group.assign(condition=group.condition.str[:6])
             table(console, f"{judge} / {judge_hash[:6]} - complete runs, common IDs", display,

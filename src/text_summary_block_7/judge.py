@@ -82,23 +82,52 @@ def settings_hash(settings):
     return fingerprint(settings["base_url"], settings["model"], settings["prompt"], settings["temperature"], settings["max_tokens"])
 
 
-def evaluate_judge(pred, settings, directory, alias="gpt_oss", sample=None, response_attempts=3):
+def matching_settings(scores, settings):
+    """Match the planned protocol, validating explicitly recorded budget exceptions.
+
+    judge_hash always identifies the actual request settings. A recovery can
+    extend only max_tokens and records its original protocol separately.
+    """
+    planned = settings_hash(settings)
+    matching = scores.judge_model.eq(settings["model"]) & scores.judge_hash.eq(planned)
+    if not {"planned_judge_hash", "request_max_tokens", "recovery_note"} <= set(scores.columns):
+        return matching
+    candidates = scores.planned_judge_hash.eq(planned) & scores.recovery_note.eq("max_tokens_override")
+    matching.loc[candidates] = False
+    for index, row in scores[candidates].iterrows():
+        try:
+            limit = float(row.request_max_tokens)
+            if not limit.is_integer() or limit <= settings["max_tokens"]:
+                continue
+            actual = settings_hash({**settings, "max_tokens": int(limit)})
+            matching.loc[index] = row.judge_model == settings["model"] and row.judge_hash == actual
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return matching
+
+
+def evaluate_judge(pred, settings, directory, alias="gpt_oss", sample=None, response_attempts=3, recovery_max_tokens=None):
     if type(response_attempts) is not int or response_attempts < 1:
         raise ValueError("response_attempts must be a positive integer")
+    if recovery_max_tokens is not None and (type(recovery_max_tokens) is not int or recovery_max_tokens <= settings["max_tokens"]):
+        raise ValueError("Recovery max_tokens must exceed the recorded limit")
+    request = {**settings, "max_tokens": recovery_max_tokens or settings["max_tokens"]}
     client = None
     initialization_error = None
     try:
-        client = create_client(settings)
+        client = create_client(request)
     except Exception as error:
         initialization_error = error
     old = load_judges(directory)
-    judge_hash = settings_hash(settings)
+    planned_hash = settings_hash(settings)
+    judge_hash = settings_hash(request)
     errors = 0
     from tqdm import tqdm
     sample = judge_sample(pred, settings["sample_size"], settings["seed"]) if sample is None else sample
     for row in tqdm(sample.itertuples(), total=len(sample), desc=settings["model"]):
         entry = {"id": row.id, "model": row.model, "response_hash": row.response_hash, "judge_model": settings["model"],
-                 "judge_hash": judge_hash, "recorded_at": now(), "source": "RouterAI", "run_id": row.run_id, "judge_alias": alias, "error": "", "error_detail": "", "attempts": 0, "finish_reason": "", "completion_tokens": ""}
+                 "judge_hash": judge_hash, "recorded_at": now(), "source": "RouterAI", "run_id": row.run_id, "judge_alias": alias, "error": "", "error_detail": "", "attempts": 0, "finish_reason": "", "completion_tokens": "",
+                 "planned_judge_hash": planned_hash, "request_max_tokens": request["max_tokens"], "recovery_note": "max_tokens_override" if recovery_max_tokens else ""}
         try:
             if initialization_error is not None:
                 raise initialization_error
@@ -107,7 +136,7 @@ def evaluate_judge(pred, settings, directory, alias="gpt_oss", sample=None, resp
                 response = client.chat.completions.create(model=settings["model"], messages=[
                     {"role": "system", "content": settings["prompt"]},
                     {"role": "user", "content": f"ORIGINAL DIALOGUE:\n{row.dialogue}\n\nREFERENCE SUMMARY:\n{row.reference}\n\nGENERATED SUMMARY:\n{row.prediction}"}],
-                    temperature=settings["temperature"], max_tokens=settings["max_tokens"])
+                    temperature=settings["temperature"], max_tokens=request["max_tokens"])
                 choice = response.choices[0] if response.choices else None
                 finish = getattr(choice, "finish_reason", "")
                 entry["finish_reason"] = finish if finish in {"stop", "length", "content_filter", "tool_calls", "function_call"} else ""
@@ -126,7 +155,7 @@ def evaluate_judge(pred, settings, directory, alias="gpt_oss", sample=None, resp
             reason = type(error).__name__ + (f" (HTTP {status_code})" if isinstance(status_code, int) else "")
             entry.update({k: None for k in CRITERIA}, status="error", error=reason)
             errors += 1
-        same = old.id.eq(row.id) & old.response_hash.eq(row.response_hash) & old.judge_hash.eq(judge_hash) & old.run_id.eq(row.run_id)
+        same = old.id.eq(row.id) & old.response_hash.eq(row.response_hash) & matching_settings(old, settings) & old.run_id.eq(row.run_id)
         if entry["status"] == "error":
             # A failed refresh must not erase a previously paid valid score.
             same &= old.status.ne("ok")

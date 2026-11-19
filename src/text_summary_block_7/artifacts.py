@@ -13,7 +13,7 @@ from .config import ROOT, MODEL_NAMES
 
 METRICS = ["bleu", "rouge1", "rouge2", "rougeL", "rougeLsum"]
 CRITERIA = ["faithfulness", "coverage", "relevance", "coherence", "overall"]
-JUDGE_COLUMNS = ["id", "model", "response_hash", *CRITERIA, "judge_model", "judge_hash", "recorded_at", "status", "error", "source", "run_id", "judge_alias", "attempts", "error_detail", "finish_reason", "completion_tokens"]
+JUDGE_COLUMNS = ["id", "model", "response_hash", *CRITERIA, "judge_model", "judge_hash", "recorded_at", "status", "error", "source", "run_id", "judge_alias", "attempts", "error_detail", "finish_reason", "completion_tokens", "planned_judge_hash", "request_max_tokens", "recovery_note"]
 
 
 def now():
@@ -162,7 +162,7 @@ def rebuild_combined(root):
         pred, metrics, _ = load_run(directory)
         current, _ = classified_judges(pred, load_judges(directory))
         valid = current[current.status.eq("ok")].drop_duplicates(["id", "response_hash", "judge_model", "judge_hash"], keep="last")
-        payload = valid[["id", "response_hash", *CRITERIA, "judge_model", "judge_hash", "source", "run_id", "recorded_at"]].rename(columns={"run_id": "judge_run_id", "recorded_at": "judge_recorded_at"})
+        payload = valid[["id", "response_hash", *CRITERIA, "judge_model", "judge_hash", "planned_judge_hash", "request_max_tokens", "recovery_note", "source", "run_id", "recorded_at"]].rename(columns={"run_id": "judge_run_id", "recorded_at": "judge_recorded_at"})
         frame = metrics.merge(payload, on=["id", "response_hash"], how="left")
         frames.append(frame)
     if frames:

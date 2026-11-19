@@ -6,10 +6,10 @@ import pandas as pd
 from .artifacts import load_run, load_judges, write_csv, safe_path, rebuild_combined
 from .config import select_judges
 from .history import rebuild_wide
-from .judge import api_key, settings_hash, evaluate_judge
+from .judge import api_key, settings_hash, evaluate_judge, matching_settings
 
 
-def retry_failed(config, run_id=None, names=None, response_attempts=3):
+def retry_failed(config, run_id=None, names=None, response_attempts=3, recovery_max_tokens=None):
     directory = safe_path(Path(config["paths"]["results_dir"]) / config["model"]["kind"])
     if run_id is None:
         run_id = yaml.safe_load((directory / "run.yaml").read_text(encoding="utf-8"))["run_id"]
@@ -27,13 +27,15 @@ def retry_failed(config, run_id=None, names=None, response_attempts=3):
     if not expected <= set(pred.id):
         raise ValueError("Recorded judge sample does not match snapshot")
     selected = select_judges(manifest["config"], names)
+    if recovery_max_tokens is not None and (type(recovery_max_tokens) is not int or any(recovery_max_tokens <= s["max_tokens"] for s in selected.values())):
+        raise ValueError("Recovery max_tokens must exceed the recorded limit")
     remaining = 0
     try:
         for alias, settings in selected.items():
             if settings_hash(settings) != planned[alias]["hash"] or settings["model"] != planned[alias]["model"]:
                 raise ValueError("Recorded judge configuration mismatch; refusing to mix scores")
             old = load_judges(directory)
-            matching = old.run_id.eq(run_id) & old.judge_model.eq(settings["model"]) & old.judge_hash.eq(planned[alias]["hash"])
+            matching = old.run_id.eq(run_id) & matching_settings(old, settings)
             good = old[matching & old.status.eq("ok")]
             keys = set(zip(good.id, good.response_hash))
             sample = pred[pred.id.isin(expected)]
@@ -46,7 +48,8 @@ def retry_failed(config, run_id=None, names=None, response_attempts=3):
             print(f"{settings['model']}: {len(sample) - len(missing)}/{len(sample)} already valid; retrying {len(missing)}")
             if not missing.empty:
                 api_key(settings)
-                remaining += evaluate_judge(pred, settings, directory, alias=alias, sample=missing, response_attempts=response_attempts)
+                kwargs = {"recovery_max_tokens": recovery_max_tokens} if recovery_max_tokens is not None else {}
+                remaining += evaluate_judge(pred, settings, directory, alias=alias, sample=missing, response_attempts=response_attempts, **kwargs)
     finally:
         all_scores = load_judges(directory)
         write_csv(all_scores[all_scores.run_id.eq(run_id)], snapshot / "judge.csv")

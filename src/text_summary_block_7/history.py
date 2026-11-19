@@ -3,6 +3,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from .artifacts import METRICS, CRITERIA, load_run, load_judges, write_csv
+from .config import select_judges
+from .judge import matching_settings, settings_hash
 
 
 def runs(directory):
@@ -54,7 +56,10 @@ def aggregate_judges(directory, history):
         evaluation = manifest.get("evaluation", {})
         expected = set(evaluation.get("sample_ids", []))
         for alias, settings in evaluation.get("judges", {}).items():
-            selected = subset[subset.judge_alias.eq(alias) & subset.judge_model.eq(settings["model"]) & subset.judge_hash.eq(settings["hash"])]
+            recorded = select_judges(manifest["config"], [alias])[alias]
+            if settings_hash(recorded) != settings["hash"] or recorded["model"] != settings["model"]:
+                raise ValueError("Recorded judge configuration does not match the evaluation plan")
+            selected = subset[subset.judge_alias.eq(alias) & matching_settings(subset, recorded)]
             latest = selected.drop_duplicates("id", keep="last")
             ok = selected[selected.status.eq("ok")].drop_duplicates("id", keep="last")
             errors = int(latest.status.ne("ok").sum())
@@ -75,7 +80,8 @@ def aggregate_judges(directory, history):
             incomplete.append({"model": entries[0][1].model.iloc[0], "run_id": "multiple", "judge": judge_model, "ok": 0, "expected": "common IDs", "errors": "no overlap"})
             continue
         means = [frame[frame.id.isin(ids)][CRITERIA].apply(pd.to_numeric).mean() for _, frame in entries]
+        overrides = sum(int(frame[frame.id.isin(ids)].recovery_note.eq("max_tokens_override").sum()) for _, frame in entries)
         rows.append({"model": entries[0][1].model.iloc[0], "condition": condition, "judge": judge_model, "judge_alias": alias,
-                     "judge_hash": judge_hash, "runs": len(entries), "N": len(ids),
+                     "judge_hash": judge_hash, "runs": len(entries), "N": len(ids), "budget_overrides": overrides,
                      **pd.DataFrame(means).mean().to_dict()})
     return pd.DataFrame(rows), pd.DataFrame(incomplete)
